@@ -13,7 +13,7 @@ Following sequencing, data was analyzed according to this [workflow](https://git
 ### Variant Call File Concatenation and BED File Generation - VariantVista
 
 <p align="center">
-  <img src="https://github.com">
+  <img src="https://github.com/Meshinchi-Lab/PacBio_LR_Tools/blob/main/VariantVista.jpeg">
 </p>
 
 The application of various structural variant calling algorithms ([PBSV](https://github.com/PacificBiosciences/pbsv), [Sniffles](https://github.com/fritzsedlazeck/Sniffles), [longreadsv](https://support.sentieon.com/manual/)) to both the whole genome and RNA sequencing long read data resulted in a large amount of variant call files (VCFs). With a lack of visualization options, we decided to write a custom python script which will take a series of VCF files and generate BED files for each structural variant type that can be uploaded to a custom track in the UCSC Genome Browser and allow for the simultaneous visualization of all the structual variants at one time. 
