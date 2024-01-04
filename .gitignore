@@ -1,0 +1,19 @@
+## Variant Call Files
+*.vcf
+*.vcf.gz
+
+## Genomic Index Files
+*.gtf*
+
+## BAM Files
+*.bam
+
+## Index Files
+*.tbi
+*.bai
+
+## BED Files
+*.bed
+
+## Other
+*.xlsx

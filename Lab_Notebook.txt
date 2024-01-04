@@ -1,0 +1,707 @@
+----------------------------------------------
+Lab Notebook - PacBio LR Initial Investigation 
+----------------------------------------------
+Logan Wallace
+-------------
+9/11/2023
+---------
+
+========
+Purpose
+========
+The purpose of this repository is to start exploring the PacBio long read technology for it's uses inside of our lab. We were recently approved for funding of long-read sequencing whole genome and transcriptome of 870 patients. The infrastructure for the processing of these samples should be in place prior to it's arrival in the lab. This is anticipated to be ~ 1 year out however, so there is little rush. 
+
+===================
+Making Fusion Calls
+===================
+conda install -c bioconda pbfusion
+
+Soheil asked if I could visual some of the long reads with UCSC genome browser. The track hub can be found here - https://genome.ucsc.edu/s/Loganw1011/PacBio_LR_RNAseq
+
+I think it would also be interesting to overlay some of the short read and long read data together. To do this, I could add it to IGV. Instead of downloading all this data, I could probably just access it with a link.
+
+Viewing the CDE manifest, I can see that all of the patients that we did the long read sequencing on have some kind of gene fusion called by bulk RNAseq. I think it should be easy to call these with the long read data so let's see if we can recapitulate the results and if we don't discover something new. Let's begin with a single CBF-GLIS patient. 
+
+Here is a list of the USIs and their fusions
+USI	    Primary Fusion
+PAUMJB	RUNX1-RUNX1T1
+PAUMIH	CBFA2T3-GLIS2
+PAUSMT	FUS-ERG
+PAVAVV	CBFA2T3-GLIS2
+PAVESI	NUP98-NSD1
+PAVKXE	NUP98-NSD1
+PAWSBW	KMT2A-LASP1
+PAWSWU	KMT2A-MLLT3
+PAWWEE	RUNX1-RUNX1T1
+PAXLXJ	DEK-NUP214
+
+Let's batch this work out to the compute cluster - actually, because I'll be using a package that I bet isn't on the cluster I can just run it locally. 
+Let's create a conda environment instead...
+conda create --name pbfusion
+environment location: /Users/lwallac2/anaconda3/envs/pbfusion
+conda activate pbfusion
+conda install -c bioconda pbfusion
+
+One Thing I need to know is the reference annotation... I'm guessing they are GRCh38 but I'm not certain how I'd go about confirming that one. Let's check in the fast drive? Haven't found anything conclusive yet. No idea how these reads were aligned... No version, no nothing.
+
+
+Usage: pbfusion gff-cache [OPTIONS] --gtf <ReferenceAnnotation>
+
+Options:
+  -g, --gtf <ReferenceAnnotation>            Input GTF file
+  -b, --gtf-out <BinaryReferenceAnnotation>  Output binary GTF file [default: *]
+  -v, --verbose...                           Enable verbose output
+  -h, --help                                 Print help information
+  -V, --version                              Print version information
+
+  pbfusion gff-cache --gtf 
+
+Well I did all of the above at work, but now I am at home so I will have to reinstall...
+conda create --name pbfusion
+/Users/loganwallace/miniconda3/envs/pbfusion
+conda activate pbfusion
+conda install -c bioconda pbfusion
+
+I think that for the GTF file, we don't need the exact ensembl version we simply need to make sure that the reference genome is the appriopriate one. In this case, this should be GRCh38 so I am going to use /Volumes/fh/fast/meshinchi_s/workingDir/scripts/lwallac2/Data/Genome_Assemblies
+
+pbfusion gff-cache --gtf /Volumes/fh/fast/meshinchi_s/workingDir/scripts/lwallac2/Data/Genome_Assemblies/Homo_sapiens.GRCh38.100.gtf --bam PAUMIH-09A-01R_all_movies_demux_816600_only.srt.bam 
+
+Well... Just found out that pbfusion does not have a mac distribution and only available on linux. I think I can get around this problem by using the cluster but that is a real pain. 
+
+I found out we can use the grabnode command to get an interactive node!
+
+I got this command though trying to load the pbfusion module
+
+The following NEW packages will be INSTALLED:
+
+  pbfusion           bioconda/noarch::pbfusion-0.3.1-hdfd78af_0
+
+
+Proceed ([y]/n)? y
+
+
+Downloading and Extracting Packages
+pbfusion-0.3.1       | 3.9 MB    | ############################################################################################################################################################################################### | 100% 
+Preparing transaction: done
+Verifying transaction: failed
+
+EnvironmentNotWritableError: The current user does not have write permissions to the target environment.
+  environment location: /app/software/Anaconda3/2022.05
+  uid: 77475
+  gid: 77475
+
+I saw that -k might work so I'm going to give that a shot. 
+
+conda install -k -c bioconda pbfusion
+
+That yielded the same error, I'm first going to try to update conda which... well that failed also ha.
+
+$ conda create --name pbfusion
+
+$ conda init bash
+
+$ bash
+
+$ conda activate pbfusion
+
+$ conda update -n base -c defaults conda
+
+Now try and install pbfusion...
+
+Nope same error. OK, emailed scicomp! 
+
+Hi Logan,
+
+I was able to install this package as follows:
+
+ml purge
+ml Anaconda3/2022.05
+conda create -y -n my-conda-env
+conda activate my-conda-env # you may have to run "conda init" at this point
+conda install -c bioconda pbfusion
+
+Let me know if the "conda activate" step gives you any grief. It told me I needed to run conda init but when I did nothing changed. Turned out that it modified my .bashrc but that did not get sourced even when I logged out and back in, so I manually sourced it with this command:
+
+. ~/.bashrc
+
+(note that that starts with a dot, which is an alias for "source").
+
+Dan is wonderful and that advice worked. It previously asked me to run 'conda init' and specify a profile (bash) but it didn't seem to be sourcing it. I asked Dan if perhaps using the ml purge in combination with the -y flag when creating the environment was what did it. 
+
+Back to PBFUSION... 
+
+pbfusion gff-cache --gtf /fh/fast/meshinchi_s/workingDir/scripts/lwallac2/Data/Genome_Assemblies/Homo_sapiens.GRCh38.100.gtf
+
+^^^ Caching the serialized gtf file for multiple runs
+
+It came out with an odd name but I wonder if that's just existing in the cache as a gtf file?
+
+pbfusion discover -b PAUMIH-09A-01R_all_movies_demux_816600_only.srt.bam --gtf Homo_sapiens.GRCh38.100.gtf.bin --output-prefix isoseq
+
+It returns this error 
+thread '<unnamed>' panicked at 'Method assumes alignment CIGAR strings use seq match/mismatch (=/X) instead of alignment match (M)', src/transcript.rs:571:17
+
+Well the PacBio folks reccomend using an updated pbmm2 aligner and giving that another shot. The only issue might be that the files are not named the same thing in their raw format as they are in their final bam file format. So I need to install pbmm2 in my environment
+
+PacBio_Fusion is the name of the conda environment...
+
+I think to resolve anything further from this we are going to have to look at how Jenny generated these counts in the first place. 
+
+I found a sample manifest here -/Volumes/fh/fast/meshinchi_s/workingDir/TARGET/AML_TARGET/RNA/mRNAseq/metadata 
+
+So I basically cannot make heads or tails from the documentation about which files are which. The only thing I could think to do would be to run through Jenny's github and see if I can go pairwise through the scripts and find some intelligeable. I've asked Jenny to meet with me about discussing where they input and output have come from. 
+
+I'm going to check the BAM files to see if I think they have been initially processed or not... I could probably also send these along to Liz Tseng to get her expertise. 
+
+The BAMs are stored here - s3://fh-pi-meshinchi-s-eco-public/TARGET_AML/RNAseq_PacBio_Data/BAM/Genomic/ but I'm not sure if they are in Genomic or Subreads. Let's check Jenny and Liz's github repo to see what we think... Github repo can be found here - https://github.com/jennylsmith/Isoseq3_workflow
+
+"Each SMRTcell contains a single sample's library"
+It looks like the raw files are the subreads.BAM files. Those are here - s3://fh-pi-meshinchi-s-eco-public/TARGET_AML/RNAseq_PacBio_Data/BAM/Subreads/ and it looks like each sample is stored within an individual folder. Probably I could look at the manifest that Jenny generated and find the file mapping... 
+
+Jenny has a file called TARGET_AML_Samples_for_STAR.txt that has the name of the samples which were submitted and the location of their fastq files for star alignment but I must imagine those are from short read data. Easy to check... Or it would be if 
+
+This is the file that I was looking for libraries_submitted_to_FHCRC_genomics_core_for_PacBio.csv (within the github repo). So it looks like each sample has a sample number, a sample name and sample information along with a number of smart cells per sample which appears to be 2 except in the case of the NBM samples. This file doesn't contain the USI for the patient however. So I don't have anything that relates the sample number or ID to the libraries which is a problem. Also, there are supposed to be 11 samples, but I'm finding 
+
+Being that I can't find this, let's continue reading through the workflow...
+
+It looks like the Isoseq workflow finishes with polish.isoforms.sh and I should be able to work with these files to move the fusion calling process forward. 
+
+This is running in the script 4A_Isoseq3_polish_isoforms.sh; Let's see where these are stored and what the output from these files is...
+The output should be a prefix.polished.bam and it looks like if they were run on AWS they are stored here (scripts 4A and 4B look very similar but 4A is for the HPC here at the Hutch and 4B is for AWS cloud compute) - $BUCKET/SR/SMRTSeq/Isoseq3/
+
+I think that these files were written to a scratch location and deleted shortly after their creation. So unfortunately, this isn't going to work as a starting point. 
+
+Do the files a step before this get stored? The FLNC reads? Should look like 
+
+So did Jenny ever make fusion calls with these reads using cDNA cupcake and where are these results stored? 
+Not that I can find...
+
+So without speaking with Jenny about how these files were generated, I really don't even know where to start. Which are the raw files? Can I just use samtools to view the bam files from PacBio? I don't even know what they sent us in the first place. 
+
+Getting an interactive node...
+
+Well I don't know how these have been processed either so I think the easiest way forward here is to wait for Jenny to get back to me about the reads. For now, I can start looking at the workflow for the other 80 or so transcriptomic reads that we have. 
+
+Or I could email Liz Tseng, let's give that a shot. 
+
+So Liz suggestst that these reads are 'subreads' which are then turned into consensus reads. I should ask the sequencing company how they were generated. 
+
+=====
+Reviewing the Kids First Cohort
+=====
+
+Let's check out the data on Cavatica, sent to us by David Higgins.
+
+There github repo for how this data was processed can be found here - https://github.com/kids-first/kf-longreads-workflow/blob/main/docs/PACBIO_WORKFLOW_README.md
+
+Generates alignment and variant information. 
+The input files are unaligned BAM files and an indexed reference fasta. They used, Homo_sapiens_assembly38.fasta from BROAD. 
+The output files are  
+    small variants in VCF made by Sentieon DNAScope HiFi on minimap2_aligned_bam 
+    longreadsum_bam_metrics - metrics via LongReadSum from the aligned bam
+    pbsv_structural_variants called by pbsv on the aligned bam
+    sniffles structural variants
+    Structural variant calls made from Sentieon LongReadSV
+So they generated structural variant calls from the minimap2_aligned_bam file. The question I have is why did they use three different variant callers and what differences did they see between them. Did these call fusions? Was the alignment using STAR or another aligner? Where is the RAW data?
+
+The aligned BAM files can be found on Cavatica, (https://cavatica.sbgenomics.com/u/kids-first-drc/sd-pet7q6f2/files/#q?path=harmonized-data) and under aligned-reads. 
+
+Sniffles variant caller, 
+PBSV variant caller,
+
+Rhonda just gave us an excel file which contains the list of samples, 'Long_read_seq_completed_and_resubmission.xlsx'
+Below is the list of FLT3-ITD patients, what are some questions that we could ask of these patients that we could elucidate with the long read data that haven't been identified with the bulk RNAseq?
+
+PAVESI
+PAUPIY
+PAURDN
+PAVBWL
+PAXISI
+PAUNVN
+PAUZPD
+PAXKEZ
+PAUNSV
+PAUVCL
+PAVHFP
+PAVKKI
+PAWHFW
+PAVBFN
+PAVFDW
+PAUTGJ
+PAUYAE
+PAVFHK
+PAWKGX
+PAURII
+PAUSCS
+PAUZTM
+PAVBUX
+PAWDTX
+PAUXYG
+PAWUNI
+PAVAGA
+PAVJVS
+PAWKJC
+
+======================
+Calling Novel Isoforms
+======================
+
+10.23.2023
+
+https://isoseq.how/
+
+I want to use the Pigeon tool (which is currently in dev) to call novel isoforms from the long read RNAseq data. The data has already been aligned to a bam file and the input to pigeon needs to be a gff file. I can use their (PacBio's) tool called 'IsoSeq' collapse to collapse the redundant transcripts but I first need to look at the workflow on github to see if the mapped.bam is a proper input for this tool. 
+
+Let's try installing this all locally first and if this doesn't work
+
+conda create --name pbpigeon
+conda activate pbpigeon
+conda install -c bioconda pbpigeon
+conda install -c bioconda isoseq3
+
+https://isoseq.how/classification/isoseq-collapse.html
+
+First, I need to know if the reads were mapped using pbmm2. For this, I should look to the workflow on the github here - https://github.com/kids-first/kf-longreads-workflow/blob/main/docs/PACBIO_WORKFLOW_README.md. The github suggests that they use Sentieon Minimap2. That workflow can be found here - https://support.sentieon.com/manual/usages/general/?highlight=minimap2#minimap2-binary. It suggests that it runs more or less identically to minimap2 which is the backend for the pbmm2 tool that pbmm2 runs on top of. (pbmm2 is a PacBio front end for mapping of long reads using minimap2). Therefore, I think that running isoseq collapse directly on these calls might work. At least, the underlying mechanism for generating the alignment with the reads will be the same. Hopefully we do no  run into any small functional snares.
+
+The loading of these packages failed on my macbook so I am going to get an interactive node and see if I can do it there. It seems like a lot of these packages are not available on Mac. 
+
+ssh lwallac2@rhino 
+grabnode (4 cpus, 80 GB, 1 day, no GPUs)
+cd fh/fast/meshinchi_s/workingDir/scripts/lwallac2/Python/PacBio_LR_Initial_Investigation/
+conda create --name PacBio_LR
+conda activate PacBio_LR
+conda install -c bioconda pbpigeon
+conda install -c bioconda isoseq3
+
+This was unbelievably rapid on gizmo node and I think it's also because the linux distribution was easily loaded to the gizmo node. 
+
+Now to download one of the bam files for running isoseq collapse. We want to download the RNAseq BAM file which can be found on Cavatica here - https://cavatica.sbgenomics.com/u/kids-first-drc/sd-pet7q6f2/files/#q?path=harmonized-data%2Flong-reads&page=1&case_id=PAUZRY
+
+A note that it is helpful to sort by 'case ID'. 
+
+isoseq collapse <mapped.bam> <collapse.gff>
+isoseq collapse PAUZRY.minimap2.bam PAUZRY.collapsed.gff
+
+Runtime warning below 
+>|> 20231023 22:04:50.679 -|- WARN -|- BamRecordIsGood -|- 0x147841136d40|| -|- Read m64161e_210421_210428/104661794/ccs does not have tag im or is. Reads without im or is will be assumed to be a single molecule.
+
+So this run returned an empty file. The only thing that I can think is that the sequences were somehow not recognized by the program because they were not aligned using pbmm2. 
+
+So I think I found the raw reads and I am going to download the reference genome and then re-align...
+
+https://github.com/PacificBiosciences/pbmm2
+pbmm2 align --preset ISOSEQ --sort <input.bam> <ref.fa> <mapped.bam>
+
+pbmm2 align --preset ISOSEQ --sort PAUZRY.bam Homo_sapiens.GRCh38.dna.primary_assembly.fa PAUZRY.pbmm2mapped.bam
+
+We are waiting on this alignment to occur. I will leave before this finishes so tomorrow when I arrive, I should fire the conda environment back up, collapse the aligned file, sort the input gff and index using and finally classify the transcripts using pigeon. 
+
+10.24.2023 - Back the next morning and it looks like the file has been aligned! Now to see if we can collapse and make some calls using pigeon.
+
+Seems like the same error is being thrown, that is there is still no tag "im" or "is" evident that the isoseq collapse program needs to run. 
+From this (https://github.com/PacificBiosciences/pbbioconda/issues/498) reported behavior on github it sounds like I would need to back up and run isoseq cluster to introduce this tag but I don't think that this is an option. What does the cluster step do?
+
+isoseq collapse ...
+
+We have transcripts! Let's see how many of them there are... we can use some bash commands to count the number of lines in the file which have PacBio transcript...
+
+Well until I figure that out there are 7,000,000+ lines so there are a lot and I'd suggest this worked. Now to run the pigeon algorithm!
+Sort with pigeon -> 
+pigeon sort PAUZRY.collapsed.gff -o PAUZRY.sorted.gff
+
+Sort and index the reference files
+Genome annotation -> 
+pigeon sort gencode.annotation.gtf -o gencode.annotation.sorted.gtf
+pigeon index gencode.annotation.sorted.gtf
+Optional CAGE peak -> 
+
+Optional Intropolis files ->
+
+For now, I am not going to worry about doing the pigeon classification run with the CAGE or Intropolis files. If this run is successful I should read about those runs and see what I might want to use them for.
+
+I first had to change the permissions on the gencode file and then gunzip it prior to running pigeon sort. 
+
+pigeon classify <sorted.gff> <annotations.gtf> <reference.fa>
+pigeon classify PAUZRY.sorted.gff gencode.v38.annotation.sorted.gtf Homo_sapiens.GRCh38.dna.primary_assembly.fa
+
+Gives error - '| 20231025 17:21:13.675 | FATAL | pigeon classify ERROR: file: 'Homo_sapiens.GRCh38.dna.primary_assembly.fa.fai' does not exist'
+Though, it never asked for me to index the fasta file prior to running pigeon and this doesn't seem to be a product of PBMM2 because I ran that aligner within this repo without it producing an indexed fasta from that very same genome assembly. 
+
+We are going to try and index using pbmm2 index with the isoseq preset and see if that indexing tools serves our purpose. Otherwise, we can probably use samtools, I just don't know whether or not there is some neccessary format for the input files. 
+
+That didn't work with pigeon so I'll try and index using pigeon but I'm really not sure that is going to work either. Might have to use samtools but I really don't want to have to realign using their annotation which has a downloadable index file. I think this because pigeon index says 
+'Usage:
+  pigeon index [options] <input>
+
+  input        FILE  Annotation text file. Annotations must be grouped by reference, with name in first column, e.g.
+                     BED or GTF'
+
+conda install -c bioconda samtools
+samtools faidx Homo_sapiens.GRCh38.dna.primary_assembly.fa
+
+Now try and run pigeon... All of the chromosomes were missing from the reference annotation so I need to go back and assess and make sure that the reference gtf and fasta are the same. Why are these chromosomes not evident in the reference annotation? 
+
+We can use a sed command at the command line to edit this text file. 
+sed 's/^chr//g' gencode.v38.annotation.sorted.gtf > gencode.v38.annotation.sorted.lwedit.gtf
+This sed command will replace chr in the original file as well.
+sed -i 's/^chr//g' gencode.v38.annotation.sorted.gtf
+
+Now rerun pigeon classify, that is currently running. After the run we should first look at PAUZRY.summary.txt to see if many of the transcripts that we are seeing are in catalog and not simply random. This would convince me that the program is running correctly. What we saw was that most of the transcripts that were identified were being described as novel and not in catalog. In a meeting with Mathew S. from PacBio on 11.6.23 he explained that he thinks this might have to do with the preparation of the reads for categorization, specifically the lack of usage of pigeon prepare and isoseq refine and cluster. So I will basically have to re-run this effort but using the entire workflow should give me a better result.
+
+11.28.23 - So let's re-evaluate where we are...
+
+I have an aligned BAM file that was aligned using PBMM2 -> PAUZRY.pbmm2mapped.bam but this isn't going to be useful because I need to first remove the PolyA and artificial concatemers prior to clustering and then aligning. So let's go back to the raw file.
+
+File which has been trimmed of cDNA primers (I should check for these primers) here - PAUZRY.bam
+
+I ran a quick samtools head command it it returned this... 
+@PG     ID:lima VN:2.1.0 (commit v2.1.0-1-g2a51960)     CL:/gpfs/gpfs1/dls/software/smrtlink/install/smrtlink-release_10.1.0.119588/bundles/smrttools/install/smrttools-release_10.1.0.119588/private/pacbio/barcoding/binwrap/../../../../private/pacbio/barcoding/bin/lima --isoseq --dump-removed --num-threads 4 --min-score 0 /gpfs/gpfs1/dls/data/sequencers/pacbio/pbio_data/64162/r64162e_20210421_204006/1_A01/m64162e_210421_205613.consensusreadset.xml /gpfs/gpfs1/dls/software/smrtlink/install/smrtlink-release_10.1.0.119588/bundles/smrtinub/current/private/pacbio/barcodes/IsoSeq_Primers_12_Barcodes_v1/IsoSeq_Primers_12_Barcodes_v1.barcodeset.xml m64162e_210421_205613.consensusreadset.xml
+
+Which tells me that lima was already run on this file! (There was a lot more but this was the thing I was interested in specifically). I wonder if anything else has been run on this file... Let's expand the head command and inspect the records. 
+
+It tells me these are CCS reads from PacBio, lima was run to remove IsoSeq_Primers_12_Barcodes_v1.barcodeset.xml and pbmerge was also run on this file.
+
+So I should be able to go right into isoseq refine...
+
+isoseq refine... but we need the barcodes. Matthew has provided what he thinks are the appropriate barcodes. I created a file with the barcodes he passed along titled 'IsoSeq_Primers_12_Barcodes_v1_barcodeset.fasta' and that can be found in this repo.
+
+Before running refine, I want to check and make sure that these barcodes are actually found within this file. 
+  samtools view PAUZRY.bam | grep 'barcode' - This didn't yield any results so I tried getting the reverse complement and it also didn't yield any results. I'm not 100% sure this means that these are the wrong barcodes, but it could mean that the barcodes are already removed view the lima process or otherwise. 
+
+
+
+
+
+
+
+
+
+==========================
+Looking into the vcf files
+==========================
+
+Soheil wants to see about visualizing the results from the variant calling.
+
+I've downloaded a vcf file generated from rnaseq from diagnostic bone marrow from patient PAUZRY. 
+I had to change the file permissions using chmod g-s <filename> so that I could unzip the file. 
+The vcf has many hundreds of alterations called. To make this a little more meaningful let's see about applying some gene annotations to this data. I think I could use vcf tools. 
+
+conda install -c bioconda vcftools
+conda install -c bioconda bcftools
+
+10.31.23
+I am going to try and concatentate the VCF files using bcftools. I've created a directory called VCF_Concat and downloaded the gzipped and indexed files from three patients. Let's see if I can run a simple bcftools command to view the files in the zipped format. Let's get another interactive node for the afternoon. 
+
+Following this excellent tutorial - https://www.biocomputix.com/post/how-to-combine-merge-vcf-bcf-files-using-bcftools-merge
+
+find /fh/fast/meshinchi_s/workingDir/scripts/lwallac2/Python/PacBio_LR_Initial_Investigation/VCF_Concat -maxdepth 1 -name "*.pbsv.vcf.gz" > vcf_filenames.txt
+
+now merge with bcftools merge command
+
+bcftools merge –file-list vcf_filenames -Oz -o merged_files.vcf.gz
+
+That seemed to work! I've now downloaded the entire collection of 60 pbsv vcf files from cavatica and can merge them.
+
+11.1.23 The issue now is that I need to be able to run the gene annotation on the vcf files in bulk which is going to need to be done at the command line using VEP.
+
+I am getting this error when trying to install VEP at the command line - 
+cram/cram_io.c:61:10: fatal error: 'lzma.h' file not found
+#include <lzma.h>
+         ^~~~~~~~
+1 error generated.
+make: *** [cram/cram_io.o] Error 1
+Compile didn't complete. No libhts.a library file found at INSTALL.pl line 925.
+
+I've run the command export DYLD_LIBRARY_PATH=/Volumes/fh/fast/meshinchi_s/workingDir/scripts/lwallac2/Python/PacBio_LR_Initial_Investigation/ensembl-vep/htslib
+
+But the issue persists. So I am going to try going to scientific computing office hours after first trying to install the program using docker. 
+
+There is a module for VEP...
+
+ssh lwallac2@rhino
+grabnode
+conda activate PacBio_LR
+ml VEP
+
+vep --show_cache_info
+
+(PacBio_LR) lwallac2@gizmok118:/fh/fast/meshinchi_s/workingDir/scripts/lwallac2/Python/PacBio_LR_Initial_Investigation$ vep -i PAUZRY.pbsv.vcf -o PAUZRY.pbsv.annotation.vcf --cache --gene_phenotype --symbol
+
+This returns the error "Cache directory /home/lwallac2/.vep/homo_sapiens not found" - 
+STACK Bio::EnsEMBL::VEP::CacheDir::dir /app/software/VEP/103.1-GCC-10.2.0/modules/Bio/EnsEMBL/VEP/CacheDir.pm:311
+STACK Bio::EnsEMBL::VEP::CacheDir::init /app/software/VEP/103.1-GCC-10.2.0/modules/Bio/EnsEMBL/VEP/CacheDir.pm:227
+STACK Bio::EnsEMBL::VEP::CacheDir::new /app/software/VEP/103.1-GCC-10.2.0/modules/Bio/EnsEMBL/VEP/CacheDir.pm:111
+STACK Bio::EnsEMBL::VEP::AnnotationSourceAdaptor::get_all_from_cache /app/software/VEP/103.1-GCC-10.2.0/modules/Bio/EnsEMBL/VEP/AnnotationSourceAdaptor.pm:115
+STACK Bio::EnsEMBL::VEP::AnnotationSourceAdaptor::get_all /app/software/VEP/103.1-GCC-10.2.0/modules/Bio/EnsEMBL/VEP/AnnotationSourceAdaptor.pm:91
+STACK Bio::EnsEMBL::VEP::BaseRunner::get_all_AnnotationSources /app/software/VEP/103.1-GCC-10.2.0/modules/Bio/EnsEMBL/VEP/BaseRunner.pm:170
+STACK Bio::EnsEMBL::VEP::Runner::init /app/software/VEP/103.1-GCC-10.2.0/modules/Bio/EnsEMBL/VEP/Runner.pm:132
+STACK Bio::EnsEMBL::VEP::Runner::run /app/software/VEP/103.1-GCC-10.2.0/modules/Bio/EnsEMBL/VEP/Runner.pm:203
+STACK toplevel /app/software/VEP/103.1-GCC-10.2.0/vep:232
+Date (localtime)    = Wed Nov  1 15:40:48 2023
+Ensembl API version = 103
+
+Maybe this means that files are cached in these locations? I think I can set the cache like so... --dir_cache <directory>
+I emailed scicomp to ask about where the cached files might be stored. 
+
+SciComp got back to me and said that they have now cached the files here - I have created a new directory:  /shared/biodata/ngs/Reference/Genomes/Homo_sapiens/Ensembl-110/homo_sapiens and populated it with the same file name from the Ensembl 100 release.
+
+11.28.23 - 
+
+Ssh'ed to rhino and got an interactive node. 
+conda activate PacBio_LR
+ml VEP
+
+Tutorial for the variant effect predictor tool from ENSEMBL
+https://useast.ensembl.org/info/docs/tools/vep/script/vep_tutorial.html
+
+/fh/fast/meshinchi_s/workingDir/scripts/lwallac2/Python/PacBio_LR_Initial_Investigation$
+
+When running the command 
+(PacBio_LR) lwallac2@gizmoj36:/fh/fast/meshinchi_s/workingDir/scripts/lwallac2/Python/PacBio_LR_Initial_Investigation$ vep -i PAUZRY.pbsv.vcf -o PAUZRY.pbsv.annotation.vcf --cache --gene_phenotype --symbol --dir_cache /shared/biodata/ngs/Reference/Genomes/Homo_sapiens/Ensembl-110
+
+I am returning the error - "MSG: ERROR: Cache directory /shared/biodata/ngs/Reference/Genomes/Homo_sapiens/Ensembl-110/homo_sapiens not found"
+
+Which is telling me that the directory is not found. I am wondering if this is because I do not have access to the directory or because I am making an error. 
+
+John Nyhuis from CompBio suggests that this error is telling me that my code is attempting to write to this location instead of just read from this location.
+  - I reccomend you look for the variable in your code that sets the cache directory location and point it to a folder on scratch or some area appropriate for a cache. 
+
+Let's try running the annotation coommand without using the 'dir_cache' command...
+
+vep -i PAUZRY.pbsv.vcf -o PAUZRY.pbsv.annotation.vcf --cache --gene_phenotype --symbol
+
+-------
+12.4.23
+-------
+I've since downloaded the VEP cached annotation data to this directory under "ensembl-vep" so I am going to try and use the annotation data here to run the command and see if that doesn't work. Otherwise I will need to wait for the module to be built. 
+
+Get on rhino and get an interactive node... Load the PacBio_LR module, make sure the VEP module has been loaded. 
+
+(PacBio_LR) lwallac2@gizmok82:/fh/fast/meshinchi_s/workingDir/scripts/lwallac2/Python/PacBio_LR_Initial_Investigation$ vep -i PAUZRY.pbsv.vcf -o PAUZRY.pbsv.annotation.vcf --cache --gene_phenotype --symbol --dir_cache ensembl-vep --cache_version 110
+
+That seemed to do the trick! Now the question is, how to annotate many files at one time. 
+Thought A. Create a batch script with a list of filenames to batch out jobs and run
+
+Okay, first I am going to need to rename all the .vcf files which are stored under vcf.concat. 
+How many are there? ls VCF_Concat/*.vcf.gz | wc -l ------> 60
+
+First I should rename these files... This means I need to copy the kids first workspace and create a manifest to be the linker for the names. ORRRRR, I could first write a batch script and then rename the files after the fact. 
+
+To run a loop I'll need two batch scripts, 
+  1. To run the loop; VEP_Loop.sh
+    Get's a list of the names of the .vcf.gz files from the specified directory and passes those names to VEP_Command.sh
+  2. To run the individual VEP command; VEP_Command.sh
+    Runs the VEP command on each input file creating a separate batch job for each file so they can be paralleled and writes the output as vcf_file.vep.annotated.vcf 
+
+bash VEP_Loop.sh
+  squeue -u lwallac2
+  shows both my jobs running!
+
+Did we return 60 files out the other side?
+  Nope! We are missing 10, let's see about a command to search for the files which are not present; A quick note that because the files are named a bit differently, I had to go into the text files and manually remove the appended .annotation.vep.etc but the 'change all occurrences' button in VSCode makes this super quick and simple. 
+  ls VCF_Concat/*.vcf.gz > vep.input.txt
+  ls  VEP_Output/*.vcf > vep.output.txt
+  diff vep.input.txt vep.output.txt
+
+The files that are missing...
+
+diff vep.input.txt vep.output.txt 
+7d6
+< 208931e9-a997-46c4-9d21-51992543d615
+20d18
+< 3c8c5ad9-b90b-4c5e-abd1-8a57ffbd98d5
+26d23
+< 66b845b6-8d76-4c82-8c69-69dfc909da3d
+30d26
+< 6d1c0dfe-6f9d-4499-8d76-f8419f8d5f9d
+33,34d28
+< 72d6b236-a136-458b-82a5-ecc8a9df1317
+< 78d03112-3479-4748-9623-dc23f3dd966c
+42,44d35
+< 9413016d-31e6-4cb9-9793-9382bc5d3223
+< 9f4ee642-aca4-4d8d-8eb7-aad9f3f5d44a
+< a0285cb7-ba7d-49e1-9e46-c954c8c58c8e
+60d50
+< fdf11d1d-e45f-4259-b705-fceb836baecb
+
+Now I can take out the test running portion and run it on all 60 files at one time. In the mean time, I can get a file manifest downloaded so that I can rename the files. 
+
+/Volumes/fh/fast/meshinchi_s/workingDir/scripts/lwallac2/Python/PacBio_LR_Initial_Investigation/VCF_Concat/fdf11d1d-e45f-4259-b705-fceb836baecb.pbsv.vcf.gz -> This file was not annotated. Let's unzip this file and see if there is something wrong with the vcf file. 
+
+This isn't working on gizmo, perhaps gunzip has some issue here. Let me try and do it locally. Sure enough, running this locally was productive. Time to manually inspect.
+
+I don't see anything obvious but I'm going to try running it on a single file at a time and see what happens. This would be worth a question for scicomp.
+  Trying to run this on a single file it returns the error, "Can't detect input format".
+
+Maybe having the "]" character in the first line is giving us the trouble. Let's see if I can change that and give it another shot.
+  chr1	1223243	pbsv.BND.chr1:1223243-chr11:64742938	C	]chr11:64742938]C	.	PASS	SVTYPE=BND;CIPOS=0,0;MATEID=pbsv.BND.chr11:64742938-chr1:1223243	GT:AD:DP	0/1:37,3:40
+I removed this line. and it seems to be working. The same thing is going on with the other files it looks like. So the question is if these lines are making it to the output as long as they aren't in the first line. Let's find another instance of this happening within another file and see if it made the output file. 
+  Let's unzip and take a look at '0c75e0c2-10cc-45bb-828c-626c5cf0bd3e.pbsv.vcf.gz', searching for "]" character and see if it makes the output file.
+  So we see this character in line 3418, 
+  chr1	44614165	pbsv.BND.chr1:44614165-chr1:44412726	G	]chr1:44412726]G	.	PASS	SVTYPE=BND;CIPOS=0,7;MATEID=pbsv.BND.chr1:44412726-chr1:44614165;MATEDIST=201439	GT:AD:DP	1/1:23,218:241
+  Is it evident in the output file?
+  pbsv.BND.chr1:44412726-chr1:44614165	chr1:44412727	BND	ENSG00000187147	ENST00000355387	Transcript	intron_variant	-	-	-	-	-	-	IMPACT=MODIFIER;STRAND=1;SYMBOL=RNF220;SYMBOL_SOURCE=HGNC;HGNC_ID=HGNC:25552;GENE_PHENO=1;OverlapBP=1;OverlapPC=0.00
+pbsv.BND.chr1:44412726-chr1:44614165	chr1:44412727	BND	ENSG00000187147	ENST00000361799	Transcript	intron_variant	-	-	-	-	-	-	IMPACT=MODIFIER;STRAND=1;SYMBOL=RNF220;SYMBOL_SOURCE=HGNC;HGNC_ID=HGNC:25552;GENE_PHENO=1;OverlapBP=1;OverlapPC=0.00
+pbsv.BND.chr1:44412726-chr1:44614165	chr1:44412727	BND	ENSG00000187147	ENST00000470498	Transcript	intron_variant,non_coding_transcript_variant	-	-	-	-	-	-	IMPACT=MODIFIER;STRAND=1;SYMBOL=RNF220;SYMBOL_SOURCE=HGNC;HGNC_ID=HGNC:25552;GENE_PHENO=1;OverlapBP=1;OverlapPC=0.01
+pbsv.BND.chr1:44412726-chr1:44614165	chr1:44412727	BND	ENSG00000187147	ENST00000487332	Transcript	downstream_gene_variant	-	-	-	-	-	-	IMPACT=MODIFIER;DISTANCE=606;STRAND=1;SYMBOL=RNF220;SYMBOL_SOURCE=HGNC;HGNC_ID=HGNC:25552;GENE_PHENO=1
+pbsv.BND.chr1:44614165-chr1:44412726	chr1:44614166	BND	ENSG00000187147	ENST00000355387	Transcript	coding_sequence_variant	1077	627	209	-	-	-	IMPACT=MODIFIER;STRAND=1;SYMBOL=RNF220;SYMBOL_SOURCE=HGNC;HGNC_ID=HGNC:25552;GENE_PHENO=1;OverlapBP=1;OverlapPC=0.00
+pbsv.BND.chr1:44614165-chr1:44412726	chr1:44614166	BND	ENSG00000187147	ENST00000361799	Transcript	coding_sequence_variant	1020	627	209	-	-	-	IMPACT=MODIFIER;STRAND=1;SYMBOL=RNF220;SYMBOL_SOURCE=HGNC;HGNC_ID=HGNC:25552;GENE_PHENO=1;OverlapBP=1;OverlapPC=0.00
+pbsv.BND.chr1:44614165-chr1:44412726	chr1:44614166	BND	ENSG00000187147	ENST00000496262	Transcript	upstream_gene_variant	-	-	-	-	-	-	IMPACT=MODIFIER;DISTANCE=99;STRAND=1;SYMBOL=RNF220;SYMBOL_SOURCE=HGNC;HGNC_ID=HGNC:25552;GENE_PHENO=1
+
+
+So it looks like as long as it isn't happening right at the start the vep command is able to run. So that means I need to go through and unzip the files which are in the missing.txt file, remove the first row and then run these files again. The only issue is, they'll not end up in the final annotation file. I can save them and manually go back and add them in to the final annotation file. Unzipped, no go and remove the first rows and record them...
+
+Filename  Line
+
+VCF_Concat/208931e9-a997-46c4-9d21-51992543d615.pbsv.vcf  
+chr1	1223246	pbsv.BND.chr1:1223246-chr11:64742937	T	]chr11:64742937]T	.	PASS	SVTYPE=BND;CIPOS=-3,6;MATEID=pbsv.BND.chr11:64742937-chr1:1223246	GT:AD:DP	0/1:169,3:172
+
+VCF_Concat/3c8c5ad9  
+chr1	15335	pbsv.BND.chr1:15335-chr3:198024699	G	[chr3:198024699[G	.	PASS	SVTYPE=BND;CIPOS=0,3;MATEID=pbsv.BND.chr3:198024699-chr1:15335	GT:AD:DP	0/1:29,7:36
+
+VCF_Concat/66b845b6-8d76-4c82-8c69-69dfc909da3d.pbsv.vcf  
+chr1	1223240	pbsv.BND.chr1:1223240-chr2:218401564	T	[chr2:218401564[T	.	PASS	SVTYPE=BND;CIPOS=0,0;MATEID=pbsv.BND.chr2:218401564-chr1:1223240	GT:AD:DP	0/1:2,3:5
+
+VCF_Concat/6d1c0dfe-6f9d-4499-8d76-f8419f8d5f9d.pbsv.vcf  
+chr1	1223244	pbsv.BND.chr1:1223244-chr1:1564916	T	]chr1:1564916]T	.	PASS	SVTYPE=BND;CIPOS=0,0;MATEID=pbsv.BND.chr1:1564916-chr1:1223244;MATEDIST=341672	GT:AD:DP	0/1:170,3:173
+chr1	1223244	pbsv.BND.chr1:1223244-chr9:128691170	T	[chr9:128691170[T	.	PASS	SVTYPE=BND;CIPOS=0,0;MATEID=pbsv.BND.chr9:128691170-chr1:1223244	GT:AD:DP	0/1:169,4:173
+chr1	1405809	pbsv.BND.chr1:1405809-chr1:1564918	C	]chr1:1564918]C	.	PASS	SVTYPE=BND;CIPOS=0,0;MATEID=pbsv.BND.chr1:1564918-chr1:1405809;
+MATEDIST=159109	GT:AD:DP	0/1:93,4:97
+
+VCF_Concat/72d6b236-a136-458b-82a5-ecc8a9df1317.pbsv.vcf  
+chr1	1223243	pbsv.BND.chr1:1223243-chr12:6769603	C	[chr12:6769603[C	.	PASS	SVTYPE=BND;CIPOS=0,0;MATEID=pbsv.BND.chr12:6769603-chr1:1223243	GT:AD:DP	0/1:60,4:64
+chr1	1223327	pbsv.BND.chr1:1223327-chr2:231711347	T	[chr2:231711347[T	.	PASS	SVTYPE=BND;CIPOS=-84,504;MATEID=pbsv.BND.chr2:231711347-chr1:1223327	GT:AD:DP	0/1:152,7:159
+
+VCF_Concat/78d03112-3479-4748-9623-dc23f3dd966c.pbsv.vcf  
+chr1	1223239	pbsv.BND.chr1:1223239-chr19:16326856	C	[chr19:16326856[C	.	PASS	SVTYPE=BND;CIPOS=0,0;MATEID=pbsv.BND.chr19:16326856-chr1:1223239	GT:AD:DP	1/1:1,4:5
+chr1	1223243	pbsv.BND.chr1:1223243-chr2:231711348	C	[chr2:231711348[C	.	PASS	SVTYPE=BND;CIPOS=0,0;MATEID=pbsv.BND.chr2:231711348-chr1:1223243	GT:AD:DP	0/1:20,4:24
+chr1	1223255	pbsv.BND.chr1:1223255-chr9:128691173	A	[chr9:128691173[A	.	PASS	SVTYPE=BND;CIPOS=-11,33;MATEID=pbsv.BND.chr9:128691173-chr1:1223255	GT:AD:DP	0/1:156,4:160
+
+
+VCF_Concat/9413016d-31e6-4cb9-9793-9382bc5d3223.pbsv.vcf  
+chr1	1405809	pbsv.BND.chr1:1405809-chr1:1564918	C	]chr1:1564918]C	.	PASS	SVTYPE=BND;CIPOS=0,0;MATEID=pbsv.BND.chr1:1564918-chr1:1405809;MATEDIST=159109	GT:AD:DP	0/1:100,14:114
+
+VCF_Concat/9f4ee642-aca4-4d8d-8eb7-aad9f3f5d44a.pbsv.vcf  
+chr1	1223241	pbsv.BND.chr1:1223241-chr20:58895612	C	[chr20:58895612[C	.	PASS	SVTYPE=BND;CIPOS=0,0;MATEID=pbsv.BND.chr20:58895612-chr1:1223241	GT:AD:DP	0/1:8,9:17
+
+VCF_Concat/a0285cb7-ba7d-49e1-9e46-c954c8c58c8e.pbsv.vcf  
+chr1	1405809	pbsv.BND.chr1:1405809-chr1:1564918	C	]chr1:1564918]C	.	PASS	SVTYPE=BND;CIPOS=0,0;MATEID=pbsv.BND.chr1:1564918-chr1:1405809;MATEDIST=159109	GT:AD:DP	0/1:60,3:63
+chr1	1405809	pbsv.BND.chr1:1405809-chr1:1564918	C	]chr1:1564918]C	.	PASS	SVTYPE=BND;CIPOS=0,0;MATEID=pbsv.BND.chr1:1564918-chr1:1405809;MATEDIST=159109	GT:AD:DP	0/1:60,3:63
+chr1	1477856	pbsv.INS.DUP.0	C	<DUP>	.	PASS	SVTYPE=DUP;END=1477983;SVLEN=127	GT:AD:DP	1/1:4,18:22
+chr1	1564918	pbsv.BND.chr1:1564918-chr1:1405809	T	T[chr1:1405809[	.	PASS	SVTYPE=BND;CIPOS=0,0;MATEID=pbsv.BND.chr1:1405809-chr1:1564918;MATEDIST=159109	GT:AD:DP	0/1:37,3:40
+
+VCF_Concat/f5fb1699-3deb-4a93-9b27-37540f6680af.pbsv.vcf
+chr1	1062056	pbsv.DEL.0	CTCCCTCCCTTGTCCCCGTTCCCTCCG	C	.	PASS	SVTYPE=DEL;END=1062082;SVLEN=-26	GT:AD:DP	1/1:0,3:3
+
+VCF_Concat/fdf11d1d-e45f-4259-b705-fceb836baecb.pbsv.vcf.gz   
+chr1	1223243	pbsv.BND.chr1:1223243-chr11:64742938	C	]chr11:64742938]C	.	PASS	SVTYPE=BND;CIPOS=0,0;MATEID=pbsv.BND.chr11:64742938-chr1:1223243	GT:AD:DP	0/1:37,3:40
+
+So now that I have removed those lines, I'm going to batch them out to be re-run without those lines and see if we can concatenate them from here. 
+
+find /fh/fast/meshinchi_s/workingDir/scripts/lwallac2/Python/PacBio_LR_Initial_Investigation/VEP_Output -maxdepth 1 -name "*.pbsv.vcf.gz" > vcf_filenames.txt
+bcftools merge –file-list vcf_filenames -Oz -o merged_files.vcf.gz
+
+We are still having some issues with missing files. Which are still missing?
+  ls VCF_Concat/*.pbsv.vcf* > vep.input.txt
+  ls  VEP_Output/*.vcf > vep.output.txt
+  diff vep.input.txt vep.output.txt
+
+OK, we have them all! 
+
+12.9.2023 - Get back on the cluster and see about putting these all together. 
+
+find /fh/fast/meshinchi_s/workingDir/scripts/lwallac2/Python/PacBio_LR_Initial_Investigation/VEP_Output -maxdepth 1 -name "*.vcf" > vcf_filenames.txt
+
+bcftools merge –file-list vcf_filenames.txt -Oz -o merged_files.vcf.gz
+
+12.13.23 - back on the cluster, grabnode, etc. 
+
+ml BCFtools
+
+Already have the list of filenames and positions. 
+
+Looking at the vcf files from the VEP output looks like we don't see the neccessary output format. Maybe VEP didn't output because I didn't set a --vcf flag? The pbsv vcf output seems to be in the proper format however the output from VEP does not. I am re-running the vep command by using the --vcf flag to see if that doesn't output to the proper format. 
+
+So after letting that spin and looking at the output format it looks to be what we are after by using the --vcf flag. 
+
+After running the loop though we are missing 4/60 files and I'm not sure why. Let me make sure they aren't still spinning... negative. 
+
+Let's see about a command that could compare those 
+
+After running it manually it seemed to work so I am now going to try the merge once again after creating a list of filenames with the following command - 
+
+List of filenames - find /fh/fast/meshinchi_s/workingDir/scripts/lwallac2/Python/PacBio_LR_Initial_Investigation/VEP_Output -maxdepth 1 -name "*.vcf" > vcf_filenames.txt
+Merge - bcftools merge -l vcf_filenames.txt -Oz -o merged_files.vcf.gz
+
+Above merge command yielded the error - HTSLIB_... not found (required by bcftools)
+
+Not sure why these are missing if they are required by the module but OK. Let's see if I can load HTSLIB...
+  Well that seemed to work. Now I need to bgzip all the files there and then index them with tabix. To do this I wrote Compress_Loop.sh. 
+
+Now that the files are compressed and indexed, let's try again with the vcf_filenames.txt re-made. 
+
+
+12.19.23 - I had the files compiled, but (I think because of not setting a flag) in the case that the 5' location of one sort of alteration matches the 5' location of another, they are being concatenated to the same line. This isn't allowing me to tell which patients have which sort of alteration in the case that multiple records exist in the same line. I think that setting the -c none flag will prevent the records from being concatenated unless they have the same REF and ALT alleles. See https://samtools.github.io/bcftools/bcftools.html#merge
+
+So try again, make sure to name the file output something different.
+Gotta get back on the cluster first...
+
+bcftools merge –file-list vcf_filenames -Oz -o merged_files.vcf.gz -m none
+
+For some reason, the --collapse command is not being recognized when running the merge command. I can try it locally, the bcftools version is 1.18 and the htslib version is 1.17.
+
+brew install bcftools
+
+Still not recognizing the command and I think it is going to be critical to keep them separate. Hmmmm. I might be able to stop "multi
+
+So I filed a github issue here - https://github.com/samtools/bcftools/issues/2063
+I also wrote a stack overflow question here - https://stackoverflow.com/questions/77700196/bcftools-merge-command-collapsing-non-identical-variants-to-single-record
+
+====================================================
+Writing a custom script to concat the files together
+====================================================
+
+But now I'm fed up with it and I'm just going to write a custom script to concat the files exactly how I want them with exactly the information that I want. 
+
+What does the script generally need to do?
+  I want a python script that will run through each of the 60 vcf files and concatenate them together. I am going to want to create a bed file with the information likely to load to UCSC's genome browser, so I'll need to extract the following information from each line of each VCF file
+  1. chrom; needs to be formatted as 'chr' and the chromosome name. 
+  2. chromStart; the starting location for the variant
+  3. chromEnd; the ending location for the variant
+  4. name; There is a lot of information that I would want to pack into here and I think that I could expand or contract it based on when Soheil wants but the first few off the top would be Name (USI), alteration variety (INS/DEL/DUP/FUSION/ETC),  
+  5. score; for now this can just be autofilled as 0 but I could later use it to indicate how confident I am in the alteration call.
+  6. strand; I don't think this is a stranded prep
+  7. thickStart;
+  8. thickEnd;
+  9. itemRgb; Based on the alteration variety, we should set the color based on the sort of alteration. 
+
+  Critical question, can I have multiple alterations at the same location, in the same bed file, on separate lines? Let's try and plug this in beore... Works without issue! So I should really just write them out into multiple rows, this way, we see multiple alterations stacking as well and it visually represents alterations in multiple patients as well. 
+  A record from each file is going to follow this format and look like below, 
+  #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	BS_B391ZQY7
+  chr1	1477855	pbsv.INS.DUP.0	G	<DUP>	.	PASS	SVTYPE=DUP;END=1477983;SVLEN=128	GT:AD:DP	1/1:10,43:53
+
+  So I need to go through each line, split the line into individual fields, 
+    As a side note, let's find out what exactly the last field means, because I think this indicates the allelic ratio but Soheil points out this might not make a lot of sense for fusions. Because it is there in the PBSV output, prior to VEP, it must be a PBSV format. Let's check their documentation. 
+  As is a little too typical with PacBio, there isn't much in the way of documentation so far. Though looking at the samtools website, the information about the VCF file format 4.2 can be found here - https://samtools.github.io/hts-specs/VCFv4.2.pdf
+  The FORMAT is GT:AD:DP so this tells us we should be looking for 
+    GT : genotype, encoded as allele values separated by either of / or |. The allele values are 0 for the reference
+allele (what is in the REF field), 1 for the first allele listed in ALT, 2 for the second allele list in ALT and
+so on. For diploid calls examples could be 0/1, 1 | 0, or 1/2, etc. For haploid calls, e.g. on Y, male nonpseudoautosomal X, or mitochondrion, only one allele value should be given; a triploid call might look like
+0/0/1. If a call cannot be made for a sample at a given locus, ‘.’ should be specified for each missing allele
+5
+in the GT field (for example ‘./.’ for a diploid genotype and ‘.’ for haploid genotype). The meanings of the
+separators are as follows (see the PS field below for more details on incorporating phasing information into the
+genotypes):
+◦ / : genotype unphased
+◦ | : genotype phased
+• DP : read depth at this position for this sample (Integer)
+-------
+1/3/24
+-------
+
+Happy New Year! At the end of last year I wrote a python program that would concatenate VCF files from our patients together and output a series of bed files (one for each variant type) that we used to create custom tracks on the UCSC genome browser and share so that we can visualize our variants. This program is in this directory, titled 'VCF_Concat.py'. I think I need to come up with a better name for this program. 
+  Notes for updates - Change the structure of the loop such that it will only output a 'popped' item from the dictionary of items we are checking the current record against. This would allow for us to update the records which are in a series of duplicates (maybe setting a flag like, "this variant is in a series of duplicates, check logs") so that we don't overlook them. With a few updates this should be output to the Meshinchi lab directory. 
+
+To create the session, I uploaded the BED files to custom tracks in the UCSC genome browser and then saved the session, which allowed for me to create a shareable link. 
+
+With the visualization mostly complete, Soheil wants to again turn attention to looking into the isoforms. I left off with this using PIGEON to try and classify the transcripts and needed the barcodes from library prep to clean the reads up. Matthew Seetin from P.B. has provided them to us. 
